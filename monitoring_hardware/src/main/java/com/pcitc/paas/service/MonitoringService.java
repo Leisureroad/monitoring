@@ -6,7 +6,7 @@ import com.pcitc.paas.model.ItemHistory;
 
 public interface MonitoringService {
     // 取得当前监控指标的平均值
-    ItemHistory getCurrentCPULoadAverage(List<String> containerList);
+    ItemHistory getCurrentCPUTotalUsageAverage(List<String> containerList);
     
     ItemHistory getCurrentMemoryUsageAverage(List<String> containerList);
     
@@ -17,7 +17,7 @@ public interface MonitoringService {
     ItemHistory countCurrentSuccessURL(List<String> containerList);
     
     // 取得监控指标的历史平均值趋势
-    List<ItemHistory> getCPULoadAverageHistory(List<String> containerList);
+    List<ItemHistory> getCPUTotalUsageAverageHistory(List<String> containerList);
     
     List<ItemHistory> getMemoryUsageAverageHistory(List<String> containerList);
     
@@ -26,7 +26,7 @@ public interface MonitoringService {
     List<ItemHistory> getFileSysUsedRateHistoryByDay(List<String> containerList, int numOfDay);
     
     // 取得指定时间点前后的监控指标的历史平均值趋势
-    List<ItemHistory> getCPULoadAverageHistoryByTimeStamp(List<String> containerList, String timeStamp);
+    List<ItemHistory> getCPUTotalUsageAverageHistoryByTimeStamp(List<String> containerList, String timeStamp);
     
     List<ItemHistory> getMemoryAverageHistoryByTimeStamp(List<String> containerList, String timeStamp);
     

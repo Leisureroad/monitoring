@@ -19,10 +19,10 @@ import java.util.regex.Pattern;
 
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
-import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -32,15 +32,16 @@ import com.pcitc.paas.model.ItemHistory;
 import com.pcitc.paas.service.MonitoringService;
 
 public class CadvisorMonitoringServiceImpl implements MonitoringService {
-    private HttpClient httpClient = new DefaultHttpClient();;
-    private HttpPost httpPost = null;
-    
-    public Properties prop = new Properties();
-    InputStream in;
+	private CloseableHttpClient httpClient;
+    private HttpPost httpPost;
+    private Properties prop;
+    private InputStream in;
     
     public CadvisorMonitoringServiceImpl() {
         try {
+        	httpClient = HttpClients.createDefault();
             in = this.getClass().getResourceAsStream("/conf/cadvisor.properties");
+            prop = new Properties();
             prop.load(in);
             in.close();
         } catch (IOException e) {
@@ -48,32 +49,44 @@ public class CadvisorMonitoringServiceImpl implements MonitoringService {
         }
     }
     
+    /**
+     * 获得当前CPU负载平均值
+     */
     @Override
-    public ItemHistory getCurrentCPULoadAverage(List<String> containerList) {
-        Map<String, Map<String, List<String>>> ctnerTimeValueMap = getCPUAverageHistoryRaw(containerList, null);
+    public ItemHistory getCurrentCPUTotalUsageAverage(List<String> containerList) {
+        Map<String, Map<String, List<String>>> ctnerTimeValueMap = getCPUTotalUsageByTimeStamp(containerList, null);
         if (ctnerTimeValueMap == null)
             return null;
         ItemHistory result = aggsAllCtnerTimeValue(ctnerTimeValueMap);
         return result;
     }
     
+    /**
+     * 获得当前内存使用率平均值
+     */    
     @Override
     public ItemHistory getCurrentMemoryUsageAverage(List<String> containerList) {
-        Map<String, Map<String, List<String>>> ctnerTimeValueMap = getMemoryAverageHistoryRaw(containerList, null);
+        Map<String, Map<String, List<String>>> ctnerTimeValueMap = getMemoryUsageByTimeStamp(containerList, null);
         if (ctnerTimeValueMap == null)
             return null;
         ItemHistory result = aggsAllCtnerTimeValue(ctnerTimeValueMap);
         return result;
     }
     
+    /**
+     * 获得CPU负载历史平均值
+     */
     @Override
-    public List<ItemHistory> getCPULoadAverageHistory(List<String> containerList) {
-        Map<String, List<ItemHistory>> containerListofMap = getCPULoadAverageHistoryMap(containerList, null);
+    public List<ItemHistory> getCPUTotalUsageAverageHistory(List<String> containerList) {
+        Map<String, List<ItemHistory>> containerListofMap = getCPUTotalUsageAverageHistoryMap(containerList, null);
         if (containerListofMap == null)
             return null;
         return containerListofMap.get(containerList.get(0));
     }
     
+    /**
+     * 获得内存使用率历史平均值
+     */
     @Override
     public List<ItemHistory> getMemoryUsageAverageHistory(List<String> containerList) {
         Map<String, List<ItemHistory>> containerListofMap = getMemoryUsageAverageHistoryMap(containerList, null);
@@ -82,33 +95,35 @@ public class CadvisorMonitoringServiceImpl implements MonitoringService {
         return containerListofMap.get(containerList.get(0));
     }
     
+    /**
+     * 根据指定的时间戳，获得CPU负载历史平均值
+     */
     @Override
-    public List<ItemHistory> getCPULoadAverageHistoryByTimeStamp(List<String> containerList, String timeStamp) {
-        Map<String, List<ItemHistory>> containerListofMap = getCPULoadAverageHistoryMap(containerList, timeStamp);
-        if (containerListofMap == null)
-            return null;
+    public List<ItemHistory> getCPUTotalUsageAverageHistoryByTimeStamp(List<String> containerList, String timeStamp) {
+        Map<String, List<ItemHistory>> containerListofMap = getCPUTotalUsageAverageHistoryMap(containerList, timeStamp);
+        if (containerListofMap == null) return null;
         return containerListofMap.get(containerList.get(0));
     }
     
+    /**
+     * 根据指定的时间戳，获得内存使用率历史平均值
+     */
     @Override
     public List<ItemHistory> getMemoryAverageHistoryByTimeStamp(List<String> containerList, String timeStamp) {
-        Map<String, List<ItemHistory>> containerListofMap = getMemoryUsageAverageHistoryMap(containerList,
-                timeStamp);
-        if (containerListofMap == null)
-            return null;
+        Map<String, List<ItemHistory>> containerListofMap = getMemoryUsageAverageHistoryMap(containerList, timeStamp);
+        if (containerListofMap == null) return null;
         return containerListofMap.get(containerList.get(0));
+    }
+
+    private Map<String, List<ItemHistory>> getCPUTotalUsageAverageHistoryMap(List<String> containerList, String timeStamp) {
+            Map<String, Map<String, List<String>>> ctnerTimeValueMap = getCPUTotalUsageByTimeStamp(containerList, timeStamp);
+            Map<String, List<ItemHistory>> resultMap = aggsCtnerTimeValue(ctnerTimeValueMap);
+            return resultMap;
     }
     
     private Map<String, List<ItemHistory>> getMemoryUsageAverageHistoryMap(List<String> containerList,
         String timeStamp) {
-        Map<String, Map<String, List<String>>> ctnerTimeValueMap = getMemoryAverageHistoryRaw(containerList, null);
-        Map<String, List<ItemHistory>> resultMap = aggsCtnerTimeValue(ctnerTimeValueMap);
-        return resultMap;
-    }
-    
-    private Map<String, List<ItemHistory>> getCPULoadAverageHistoryMap(List<String> containerList,
-        String timeStamp) {
-        Map<String, Map<String, List<String>>> ctnerTimeValueMap = getCPUAverageHistoryRaw(containerList, timeStamp);
+        Map<String, Map<String, List<String>>> ctnerTimeValueMap = getMemoryUsageByTimeStamp(containerList, null);
         Map<String, List<ItemHistory>> resultMap = aggsCtnerTimeValue(ctnerTimeValueMap);
         return resultMap;
     }
@@ -119,20 +134,15 @@ public class CadvisorMonitoringServiceImpl implements MonitoringService {
      * @param containerList
      * @return
      */
-    private Map<String, Map<String, List<String>>> getCPUAverageHistoryRaw(List<String> containerList,
-        String timeStamp) {
+    private Map<String, Map<String, List<String>>> getCPUTotalUsageByTimeStamp(List<String> containerList, String timeStamp) {
         String params = queryESData(containerList, timeStamp);
         String resultRaw = doHttpPost(params);
         Map<String, List<DockerContainerInfo>> ctnerListMap = parseESData(resultRaw);
-        if (ctnerListMap == null)
-            return null;
-        Map<String, List<ItemHistory>> ctnerCPUInfoMap = calculateCPUTotalUsage(ctnerListMap);
-        if (ctnerCPUInfoMap == null)
-            return null;
-        Map<String, Map<String, List<String>>> ctnerTimeValueMap = convertContainerTimeItemValueMap(containerList,
-                ctnerCPUInfoMap);
-        if (ctnerTimeValueMap == null)
-            return null;
+        if (ctnerListMap == null) return null;
+        Map<String, List<ItemHistory>> ctnerCPUUsageMap = calculateCPUTotalUsage(ctnerListMap);
+        if (ctnerCPUUsageMap == null) return null;
+        Map<String, Map<String, List<String>>> ctnerTimeValueMap = convertContainerTimeItemValueMap(containerList, ctnerCPUUsageMap);
+        if (ctnerTimeValueMap == null) return null;
         return ctnerTimeValueMap;
     }
     
@@ -142,20 +152,15 @@ public class CadvisorMonitoringServiceImpl implements MonitoringService {
      * @param containerList
      * @return
      */
-    private Map<String, Map<String, List<String>>> getMemoryAverageHistoryRaw(List<String> containerList,
-        String timeStamp) {
+    private Map<String, Map<String, List<String>>> getMemoryUsageByTimeStamp(List<String> containerList, String timeStamp) {
         String params = queryESData(containerList, timeStamp);
         String resultRaw = doHttpPost(params);
         Map<String, List<DockerContainerInfo>> ctnerListMap = parseESData(resultRaw);
-        if (ctnerListMap == null)
-            return null;
+        if (ctnerListMap == null) return null;
         Map<String, List<ItemHistory>> ctnerMemInfoMap = getMemoryUsageMb(ctnerListMap);
-        if (ctnerMemInfoMap == null)
-            return null;
-        Map<String, Map<String, List<String>>> ctnerTimeValueMap = convertContainerTimeItemValueMap(containerList,
-                ctnerMemInfoMap);
-        if (ctnerTimeValueMap == null)
-            return null;
+        if (ctnerMemInfoMap == null) return null;
+        Map<String, Map<String, List<String>>> ctnerTimeValueMap = convertContainerTimeItemValueMap(containerList, ctnerMemInfoMap);
+        if (ctnerTimeValueMap == null) return null;
         return ctnerTimeValueMap;
     }
     
@@ -196,9 +201,7 @@ public class CadvisorMonitoringServiceImpl implements MonitoringService {
         String ctnerListVar = ctnerListStr.substring(0, ctnerListStr.length() - 4);
         vars.put("${from}", String.valueOf(from));
         vars.put("${to}", String.valueOf(now));
-        vars.put("${containerList}", ctnerListVar); // container_Name=paas_esg*
-                                                    // OR
-                                                    // container_Name=paas_sbf*
+        vars.put("${containerList}", ctnerListVar); 
         String params = replaceVars(paramsRaw, vars);
         return params;
     }
@@ -318,23 +321,23 @@ public class CadvisorMonitoringServiceImpl implements MonitoringService {
      * 根据container查询信息，获得container按照时间维度的监控值的列表，但未按照时间合并
      * 
      * @param containerList
-     * @param ctnerCPUInfoMap
+     * @param ctnerCPUUsageMap
      * @return
      */
     private Map<String, Map<String, List<String>>> convertContainerTimeItemValueMap(List<String> containerList,
-        Map<String, List<ItemHistory>> ctnerCPUInfoMap) {
+        Map<String, List<ItemHistory>> ctnerCPUUsageMap) {
         // 根据实例编码获取所有container的监控信息， {container查询名主键，clock=[value1, value2]}
         Map<String, Map<String, List<String>>> ctnerTimeValueMap = new HashMap<String, Map<String, List<String>>>();
-        Iterator<String> ctnerNameIter = ctnerCPUInfoMap.keySet().iterator();
+        Iterator<String> ctnerNameIter = ctnerCPUUsageMap.keySet().iterator();
         while (ctnerNameIter.hasNext()) {
             for (int i = 0; i < containerList.size(); i++) {
                 String ctnerName = ctnerNameIter.next();
-                Pattern p = Pattern.compile(containerList.get(i) + ".*");
+                Pattern p = Pattern.compile(containerList.get(i) + "*.*");
                 Matcher m = p.matcher(ctnerName);
                 if (!m.matches()) {
                     continue;
                 } else {
-                    List<ItemHistory> itemList = ctnerCPUInfoMap.get(ctnerName);
+                    List<ItemHistory> itemList = ctnerCPUUsageMap.get(ctnerName);
                     for (int j = 0; j < itemList.size(); j++) {
                         String ctnerNameParam = containerList.get(i);
                         String time = itemList.get(j).getClock();
@@ -369,10 +372,9 @@ public class CadvisorMonitoringServiceImpl implements MonitoringService {
      * @param containerListOfMap
      * @return
      */
-    private Map<String, List<ItemHistory>>
-        calculateCPUTotalUsage(Map<String, List<DockerContainerInfo>> containerListOfMap) {
+    private Map<String, List<ItemHistory>> calculateCPUTotalUsage(Map<String, List<DockerContainerInfo>> containerListOfMap) {
         Iterator<String> iter = containerListOfMap.keySet().iterator();
-        Map<String, List<ItemHistory>> ctnerCpuInfoMap = new HashMap<String, List<ItemHistory>>();
+        Map<String, List<ItemHistory>> ctnerCPUUsageMap = new HashMap<String, List<ItemHistory>>();
         while (iter.hasNext()) {
             String ctnerName = iter.next();
             List<DockerContainerInfo> ctnerList = containerListOfMap.get(ctnerName);
@@ -394,14 +396,14 @@ public class CadvisorMonitoringServiceImpl implements MonitoringService {
                 item.setValue(String.valueOf(percentage));
                 List<ItemHistory> itemList = new ArrayList<ItemHistory>();
                 itemList.add(item);
-                if (ctnerCpuInfoMap.get(ctnerName) == null) {
-                    ctnerCpuInfoMap.put(ctnerName, itemList);
+                if (ctnerCPUUsageMap.get(ctnerName) == null) {
+                    ctnerCPUUsageMap.put(ctnerName, itemList);
                 } else {
-                    ctnerCpuInfoMap.get(ctnerName).addAll(itemList);
+                    ctnerCPUUsageMap.get(ctnerName).addAll(itemList);
                 }
             }
         }
-        return ctnerCpuInfoMap;
+        return ctnerCPUUsageMap;
     }
     
     /**
