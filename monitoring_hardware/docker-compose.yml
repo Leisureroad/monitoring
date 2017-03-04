@@ -1,0 +1,20 @@
+elasticsearch:
+  image: elasticsearch:2.4.4
+  volumes:
+   - ~/esdata:/usr/share/elasticsearch/data
+  ports:
+    - "9200:9200"
+    - "9300:9300"
+cadvisor:
+  image: google/cadvisor:latest
+  restart: always
+  ports:
+    - "8888:8080"
+  volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:rw
+    - /sys:/sys:ro
+    - /var/lib/docker/:/var/lib/docker:ro
+  links: 
+    - elasticsearch
+  command: -storage_driver="elasticsearch" -alsologtostderr=true -storage_driver_es_host="http://elasticsearch:9200"
